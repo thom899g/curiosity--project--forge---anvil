@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  orchestrator-core:
+    build: ./orchestrator-core
+    container_name: forge-orchestrator
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+    volumes:
+      - shared-logs:/app/logs
+      - ./orchestrator-core:/app
+    depends_on:
+      - firestore-emulator
+    networks:
+      - forge-network
+
+  data-ingester:
+    build: ./data-ingester
+    container_name: forge-data-ingester
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - orchestrator-core
+
+  strategy-pod-anvil:
+    build: ./strategy-pod-anvil
+    container_name: forge-strategy-anvil
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - data-ingester
+
+  risk-engine:
+    build: ./risk-engine
+    container_name: forge-risk-engine
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - orchestrator-core
+
+  execution-gateway:
+    build: ./execution-gateway
+    container_name: forge-execution-gateway
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - risk-engine
+
+  treasury-sentinel:
+    build: ./treasury-sentinel
+    container_name: forge-treasury-sentinel
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - TREASURY_WALLET=${TREASURY_WALLET}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - execution-gateway
+
+  telemetry-agent:
+    build: ./telemetry-agent
+    container_name: forge-telemetry-agent
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    volumes:
+      - shared-logs:/app/logs
+    networks:
+      - forge-network
+    depends_on:
+      - orchestrator-core
+
+  firestore-emulator:
+    image: ghcr.io/firebase/firebase-emulators:latest
+    container_name: forge-firestore-emulator
+    ports:
+      - "8080:8080"  # Firestore emulator UI
+      - "9090:9090"  # Firestore gRPC port
+    environment:
+      - FIRESTORE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - PORT=8080
+    command: "firebase emulators:start --only firestore --project ${FIREBASE_PROJECT_ID}"
+    networks:
+      - forge-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: forge-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - forge-network
+
+volumes:
+  shared-logs:
+  grafana-data:
+
+networks:
+  forge-network:
+    driver: bridge
